@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Kitchen Table Euchre</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="description" content="Single-player Euchre against computer players, with Regular and Hard difficulty, Stick the Dealer and Canadian Loner.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Work+Sans:wght@400;600;700&family=Zilla+Slab:wght@600;700&display=swap">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app">
+  <header class="bar">
+    <h1>Kitchen Table <span>Euchre</span></h1>
+    <div class="score" aria-live="polite">
+      <div class="team us"><span class="label">Us</span><span class="pts" id="scoreUs">0</span></div>
+      <div class="team them"><span class="label">Them</span><span class="pts" id="scoreThem">0</span></div>
+      <span class="to">First to 10</span>
+    </div>
+    <button class="btn" id="optionsBtn" type="button">Game options</button>
+  </header>
+
+  <div class="strip" id="strip"></div>
+
+  <main class="table" id="table">
+    <div class="seat north" id="seat2"></div>
+    <div class="seat west" id="seat1"></div>
+    <div class="seat east" id="seat3"></div>
+    <div class="center" id="center"></div>
+  </main>
+
+  <section class="panel" id="panel" aria-live="polite"></section>
+
+  <div class="mine" id="hand0" aria-label="Your hand"></div>
+</div>
+
+<div class="overlay" id="setup" hidden>
+  <form class="sheet" id="setupForm">
+    <h2>Deal a new game of <span>Euchre</span></h2>
+    <p>You and your partner (across the table) play against West and East. Take 3 of the 5 tricks to score. First team to 10 wins.</p>
+    <fieldset>
+      <legend>Difficulty</legend>
+      <div class="seg">
+        <label><input type="radio" name="difficulty" id="diffRegular" value="regular" checked><b>Regular</b><small>Sensible players who sometimes guess wrong.</small></label>
+        <label><input type="radio" name="difficulty" id="diffHard" value="hard"><b>Hard</b><small>Your partner and opponents count cards, bid by position and pick their loners.</small></label>
+      </div>
+    </fieldset>
+    <fieldset>
+      <legend>House rules</legend>
+      <label class="rule"><input type="checkbox" id="optStick"><b>Stick the Dealer</b><small>If everyone passes twice, the dealer must name trump. Without it the hand is thrown in and the deal moves on.</small></label>
+      <label class="rule"><input type="checkbox" id="optCanadian"><b>Canadian Loner</b><small>If you order up your own partner when they deal, you must play the hand alone.</small></label>
+    </fieldset>
+    <p class="note" id="setupNote">Changing options starts a new game.</p>
+    <div class="row">
+      <button class="btn" type="button" id="setupCancel">Keep playing</button>
+      <button class="btn primary" type="submit" id="setupStart">Deal</button>
+    </div>
+  </form>
+</div>
+
+<script src="js/engine.js"></script>
+<script src="js/ai.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>
