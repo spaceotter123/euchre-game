@@ -85,6 +85,7 @@
     g.played = [];
     g.voids = [{}, {}, {}, {}];
     g.say = {};
+    g.passed = [0, 0, 0, 0]; // who has passed in the current bidding round
     g.lastResult = null;
     g.note = SEAT_NAMES[g.dealer] + (g.dealer === 0 ? ' deal.' : ' dealt.') + ' The up card is ' + cardName(g.upcard) + '.';
   }
@@ -114,6 +115,7 @@
     if (action.type === 'pass') {
       if (!opts.canPass) throw new Error('The dealer must name trump');
       g.say[seat] = 'Pass';
+      g.passed[seat] = g.phase === 'bid1' ? 1 : 2;
       g.note = who + (seat === 0 ? ' pass.' : ' passed.');
       g.passes++;
       if (g.passes < 4) {
@@ -124,7 +126,8 @@
         g.passes = 0;
         g.turn = nextSeat(g.dealer);
         g.say = {};
-        g.note = 'Everyone passed. The ' + cardName(g.upcard) + ' is turned down. Name any other suit as trump.';
+        g.passed = [0, 0, 0, 0];
+        g.note = 'Everyone passed, so the ' + cardName(g.upcard) + ' is turned down.';
       } else {
         g.phase = 'misdeal';
         g.turn = -1;
@@ -140,7 +143,6 @@
       g.say[seat] = verb + (alone ? ', alone' : '');
       g.note = who + (seat === g.dealer ? (seat === 0 ? ' pick up ' : ' picked up ') : (seat === 0 ? ' order up ' : ' ordered up '))
         + SUIT_NAME[g.trump] + (alone ? ' and ' + (seat === 0 ? 'go' : 'goes') + ' alone' : '') + '.';
-      if (opts.forcedAlone && !action.alone) g.note += ' Canadian Loner: ordering up your partner means playing alone.';
       if (g.sittingOut === g.dealer) {
         startPlay(g);
       } else {

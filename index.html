@@ -34,24 +34,25 @@
 
   <section class="panel" id="panel" aria-live="polite"></section>
 
+  <div class="seat south" id="seat0"></div>
+
   <div class="mine" id="hand0" aria-label="Your hand"></div>
 </div>
 
 <div class="overlay" id="setup" hidden>
   <form class="sheet" id="setupForm">
     <h2>Deal a new game of <span>Euchre</span></h2>
-    <p>You and your partner (across the table) play against West and East. Take 3 of the 5 tricks to score. First team to 10 wins.</p>
     <fieldset>
       <legend>Difficulty</legend>
       <div class="seg">
-        <label><input type="radio" name="difficulty" id="diffRegular" value="regular" checked><b>Regular</b><small>Sensible players who sometimes guess wrong.</small></label>
-        <label><input type="radio" name="difficulty" id="diffHard" value="hard"><b>Hard</b><small>Your partner and opponents count cards, bid by position and pick their loners.</small></label>
+        <label><input type="radio" name="difficulty" id="diffRegular" value="regular" checked><b>Regular</b></label>
+        <label><input type="radio" name="difficulty" id="diffHard" value="hard"><b>Hard</b></label>
       </div>
     </fieldset>
     <fieldset>
       <legend>House rules</legend>
-      <label class="rule"><input type="checkbox" id="optStick"><b>Stick the Dealer</b><small>If everyone passes twice, the dealer must name trump. Without it the hand is thrown in and the deal moves on.</small></label>
-      <label class="rule"><input type="checkbox" id="optCanadian"><b>Canadian Loner</b><small>If you order up your own partner when they deal, you must play the hand alone.</small></label>
+      <label class="rule"><input type="checkbox" id="optStick"><b>Stick the Dealer</b></label>
+      <label class="rule"><input type="checkbox" id="optCanadian"><b>Canadian Loner</b></label>
     </fieldset>
     <p class="note" id="setupNote">Changing options starts a new game.</p>
     <div class="row">

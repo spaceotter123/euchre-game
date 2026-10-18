@@ -34,7 +34,7 @@ body {
 .app {
   min-height: 100%;
   display: grid;
-  grid-template-rows: auto auto 1fr auto auto;
+  grid-template-rows: auto auto 1fr auto auto auto;
   gap: 10px;
   max-width: 900px;
   margin: 0 auto;
@@ -90,7 +90,7 @@ body {
   cursor: pointer;
 }
 .btn:hover { border-color: var(--brass); }
-.btn:focus-visible, .card:focus-visible, .toggle input:focus-visible + span { outline: 3px solid var(--brass); outline-offset: 2px; }
+.btn:focus-visible, .card:focus-visible { outline: 3px solid var(--brass); outline-offset: 2px; }
 .btn.primary { background: var(--brass); color: var(--brass-ink); border-color: var(--brass); }
 .btn.primary:hover { filter: brightness(1.08); }
 .btn:disabled { opacity: 0.45; cursor: not-allowed; }
@@ -107,8 +107,9 @@ body {
   color: var(--muted);
   min-height: 1.3em;
 }
+.strip span { display: inline-flex; align-items: baseline; gap: 4px; }
 .strip b { color: var(--ivory); font-weight: 600; }
-.strip .trump-sym { font-size: 1.05rem; }
+.strip .trump-sym { display: inline; font-size: 1em; line-height: 1; }
 .strip .red { color: #ff8a8f; }
 
 /* ---- Table ---- */
@@ -154,7 +155,21 @@ body {
   background: var(--ivory);
   color: var(--ink);
 }
-.chip.maker { background: var(--red); color: var(--ivory); width: auto; padding: 0 6px; border-radius: 9px; }
+.chip.passed { background: transparent; color: var(--muted); border: 1px solid var(--muted); width: auto; padding: 0 6px; border-radius: 9px; font-weight: 600; }
+.nameplate.turn .chip.passed { color: var(--brass-ink); border-color: var(--brass-ink); }
+.seat.south { margin-bottom: -6px; }
+.chip.maker { width: auto; padding: 0 7px; border-radius: 9px; gap: 3px; display: inline-flex; align-items: center; }
+.chip.maker .sym-red { color: var(--red); }
+.chip.tricks {
+  width: 15px;
+  height: 20px;
+  border-radius: 3px;
+  background: var(--brass);
+  color: var(--brass-ink);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+.nameplate.turn .chip.tricks { background: var(--ivory); color: var(--ink); }
 .backs { display: flex; justify-content: center; }
 .backs .back + .back { margin-left: calc(var(--cw) * -0.62); }
 .seat.west .backs, .seat.east .backs { flex-direction: column; align-items: center; }
@@ -286,8 +301,31 @@ body {
 .panel .msg { margin: 0; max-width: 62ch; line-height: 1.45; }
 .panel .msg strong { color: var(--brass); }
 .actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
-.toggle { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; cursor: pointer; }
-.toggle input { width: 18px; height: 18px; accent-color: var(--brass); }
+.switch { display: inline-flex; align-items: center; gap: 10px; font-size: 0.92rem; font-weight: 600; cursor: pointer; position: relative; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch .track {
+  width: 42px;
+  height: 24px;
+  border-radius: 12px;
+  background: rgba(0, 0, 0, 0.35);
+  border: 1px solid var(--felt-line);
+  position: relative;
+  transition: background 0.15s ease;
+}
+.switch .track::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--ivory);
+  transition: transform 0.15s ease;
+}
+.switch input:checked + .track { background: var(--brass); border-color: var(--brass); }
+.switch input:checked + .track::after { transform: translateX(18px); }
+.switch input:focus-visible + .track { outline: 3px solid var(--brass); outline-offset: 2px; }
 
 /* ---- Setup / options sheet ---- */
 .overlay {
@@ -343,9 +381,10 @@ body {
   .table { padding: 8px 4px; border-radius: 12px; }
   .seat.west .backs .back + .back, .seat.east .backs .back + .back { margin-top: calc(var(--ch) * -0.6); }
   .mine { gap: 4px; }
+  .seat.west .nameplate, .seat.east .nameplate { flex-wrap: wrap; justify-content: center; white-space: normal; border-radius: 12px; max-width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .trick .slot .card.fresh { animation: none; }
-  .mine .card { transition: none; }
+  .mine .card, .switch .track, .switch .track::after { transition: none; }
 }

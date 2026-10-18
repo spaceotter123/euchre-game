@@ -22,7 +22,6 @@
   };
   const suitHtml = (s) => `<span class="${RED[s] ? 'sym-red red' : ''}">${SUIT_SYM[s]}</span>`;
   const teamLabel = (t) => (t === 0 ? 'Us' : 'Them');
-  const seatsLabel = (t) => (t === 0 ? 'You and Partner' : 'West and East');
 
   // ---- Settings ----
   function loadSettings() {
@@ -70,7 +69,7 @@
     $('scoreUs').textContent = g ? g.scores[0] : 0;
     $('scoreThem').textContent = g ? g.scores[1] : 0;
     renderStrip();
-    for (const s of [1, 2, 3]) renderSeat(s);
+    for (const s of [0, 1, 2, 3]) renderSeat(s);
     renderCenter();
     renderHand();
     renderPanel();
@@ -82,7 +81,7 @@
     const o = g.options;
     const parts = [`Dealer <b>${SEAT_NAMES[g.dealer]}</b>`];
     if (g.trump) {
-      parts.push(`Trump <b class="trump-sym ${RED[g.trump] ? 'red' : ''}">${SUIT_SYM[g.trump]}</b> <b>${SUIT_NAME[g.trump]}</b>`);
+      parts.push(`Trump <b><span class="trump-sym ${RED[g.trump] ? 'red' : ''}">${SUIT_SYM[g.trump]}</span> ${SUIT_NAME[g.trump]}</b>`);
       parts.push(`Called by <b>${SEAT_NAMES[g.maker]}${g.alone ? ' (alone)' : ''}</b>`);
       parts.push(`Tricks <b>Us ${g.tricksWon[0]}</b> · <b>Them ${g.tricksWon[1]}</b>`);
     }
@@ -103,8 +102,19 @@
     const plate = el('div', 'nameplate' + (g.turn === s ? ' turn' : '') + (g.sittingOut === s ? ' out' : ''));
     plate.textContent = SEAT_NAMES[s];
     if (g.dealer === s) plate.insertAdjacentHTML('beforeend', '<span class="chip" title="Dealer">D</span>');
-    if (g.maker === s) plate.insertAdjacentHTML('beforeend', `<span class="chip maker">${g.alone ? 'Alone' : 'Called'}</span>`);
+    if (g.maker === s) {
+      plate.insertAdjacentHTML('beforeend', `<span class="chip maker">${g.alone ? 'Alone' : 'Called'} ${suitHtml(g.trump)}</span>`);
+    }
+    if (g.trump && g.sittingOut !== s && ['play', 'trickDone', 'handOver', 'gameOver'].includes(g.phase)) {
+      const n = g.tricks.filter((t) => t.winner === s).length;
+      plate.insertAdjacentHTML('beforeend', `<span class="chip tricks" title="Tricks won this hand">${n}</span>`);
+    }
+    const bidding = g.phase === 'bid1' || g.phase === 'bid2' || g.phase === 'discard' || g.phase === 'misdeal';
+    if (bidding && g.passed && g.passed[s]) {
+      plate.insertAdjacentHTML('beforeend', `<span class="chip passed">Passed</span>`);
+    }
     box.appendChild(plate);
+    if (s === 0) return;
     const backs = el('div', 'backs');
     if (g.sittingOut === s) {
       backs.appendChild(el('span', 'bubble', 'Sitting out'));
@@ -128,7 +138,7 @@
         if (p === g.trick[g.trick.length - 1] && g.phase !== 'trickDone') ce.classList.add('fresh');
         slot.appendChild(ce);
       }
-      else if (g.say[s]) slot.appendChild(bubbleEl(s === 0 ? 'You: ' + g.say[s] : g.say[s]));
+      else if (g.say[s] && g.say[s] !== 'Pass') slot.appendChild(bubbleEl(s === 0 ? 'You: ' + g.say[s] : g.say[s]));
       trick.appendChild(slot);
     }
     const mid = el('div', 'mid');
@@ -136,8 +146,6 @@
       mid.appendChild(kittyEl(true));
     } else if (g.phase === 'bid2') {
       mid.appendChild(kittyEl(false));
-    } else if (g.phase === 'trickDone') {
-      mid.textContent = (g.trickWinner === 0 ? 'You take' : SEAT_NAMES[g.trickWinner] + ' takes') + ' it';
     }
     trick.appendChild(mid);
     c.appendChild(trick);
@@ -201,105 +209,70 @@
   function renderPanel() {
     const p = $('panel');
     p.innerHTML = '';
-    const msg = el('p', 'msg');
     const actions = el('div', 'actions');
-    p.appendChild(msg);
+    const add = (b) => actions.appendChild(b);
 
     if (!g || g.phase === 'idle') {
-      msg.textContent = 'Pick a difficulty and house rules, then deal.';
-      actions.appendChild(button('Start a game', 'primary', openSetup));
+      add(button('Start a game', 'primary', openSetup));
       p.appendChild(actions);
       return;
     }
 
-    const note = g.note || '';
     const myTurn = g.turn === 0;
+    let aloneSwitch = false;
 
     switch (g.phase) {
       case 'bid1': {
-        if (!myTurn) { msg.textContent = note + ' ' + SEAT_NAMES[g.turn] + ' is deciding…'; break; }
+        if (!myTurn) break;
         const opts = E.bidOptions(g, 0);
-        const s = g.upcard.s;
-        const dealerIsMe = g.dealer === 0;
-        const who = dealerIsMe ? 'yourself' : g.dealer === 2 ? 'your partner' : SEAT_NAMES[g.dealer];
-        msg.innerHTML = `${escapeHtml(note)} Make ${suitHtml(s)} <strong>${SUIT_NAME[s]}</strong> trump and give the ${E.cardName(g.upcard)} to ${who}?`;
-        actions.appendChild(button('Pass', '', () => human({ type: 'pass' })));
+        add(button('Pass', '', () => human({ type: 'pass' })));
         if (opts.forcedAlone) {
-          actions.appendChild(button('Order up and go alone', 'primary', () => human({ type: 'order', alone: true })));
-          msg.innerHTML += ' <br>Canadian Loner is on, so ordering up your partner means you play alone.';
+          add(button('Order up and go alone', 'primary', () => human({ type: 'order', alone: true })));
         } else {
-          actions.appendChild(button(dealerIsMe ? 'Pick it up' : 'Order it up', 'primary', () => human({ type: 'order', alone: false })));
-          actions.appendChild(button(dealerIsMe ? 'Pick it up, go alone' : 'Order up, go alone', '', () => human({ type: 'order', alone: true })));
+          add(button(g.dealer === 0 ? 'Pick it up' : 'Order it up', 'primary', () => human({ type: 'order', alone: goAlone })));
+          aloneSwitch = true;
         }
         break;
       }
       case 'bid2': {
-        if (!myTurn) { msg.textContent = note + ' ' + SEAT_NAMES[g.turn] + ' is deciding…'; break; }
+        if (!myTurn) break;
         const opts = E.bidOptions(g, 0);
-        msg.innerHTML = escapeHtml(note) + (opts.canPass ? ' Name a trump suit or pass.' : ' <strong>Stick the Dealer:</strong> everyone passed, so you must name trump.');
         for (const s of opts.suits) {
-          actions.appendChild(button(`${suitHtml(s)} ${SUIT_NAME[s]}`, 'suit', () => human({ type: 'call', suit: s, alone: goAlone })));
+          add(button(`${suitHtml(s)} ${SUIT_NAME[s]}`, 'suit', () => human({ type: 'call', suit: s, alone: goAlone })));
         }
-        if (opts.canPass) actions.appendChild(button('Pass', '', () => human({ type: 'pass' })));
-        const t = el('label', 'toggle');
-        t.innerHTML = '<input type="checkbox" id="goAlone"><span>Go alone</span>';
-        t.querySelector('input').checked = goAlone;
-        t.querySelector('input').addEventListener('change', (e) => { goAlone = e.target.checked; });
-        p.appendChild(actions);
-        p.appendChild(t);
-        return;
-      }
-      case 'discard':
-        if (!myTurn) { msg.textContent = note + ' ' + SEAT_NAMES[g.dealer] + ' is picking a card to discard…'; break; }
-        msg.innerHTML = `${escapeHtml(note)} You picked up the ${E.cardName(g.upcard)}. <strong>Tap a card in your hand to discard it.</strong>`;
-        break;
-      case 'play': {
-        const lead = g.trick.length === 0;
-        if (!myTurn) {
-          msg.textContent = (g.tricks.length === 0 && lead ? note + ' ' : '') + SEAT_NAMES[g.turn] + (lead ? ' leads…' : ' is playing…');
-          break;
-        }
-        if (lead) msg.innerHTML = (g.tricks.length === 0 ? escapeHtml(note) + ' ' : '') + '<strong>Your lead.</strong> Tap any card.';
-        else {
-          const led = E.ledSuit(g);
-          const follow = g.hands[0].some((c) => E.effSuit(c, g.trump) === led);
-          msg.innerHTML = follow
-            ? `<strong>Your turn.</strong> ${SUIT_NAME[led]} were led, so you must follow suit.`
-            : `<strong>Your turn.</strong> You have no ${SUIT_NAME[led]}, so you can trump in or throw off any card.`;
-        }
+        if (opts.canPass) add(button('Pass', '', () => human({ type: 'pass' })));
+        aloneSwitch = true;
         break;
       }
-      case 'trickDone':
-        msg.textContent = (g.trickWinner === 0 ? 'You take' : SEAT_NAMES[g.trickWinner] + ' takes') + ' the trick.';
-        break;
       case 'misdeal':
-        msg.textContent = note;
-        actions.appendChild(button('Deal next hand', 'primary', () => { E.nextHand(g); advance(); }));
+        add(button('Deal next hand', 'primary', () => { E.nextHand(g); advance(); }));
         break;
       case 'handOver':
       case 'gameOver': {
         const r = g.lastResult;
-        let text;
-        const makerName = r.maker === 0 ? 'You' : SEAT_NAMES[r.maker];
-        if (r.kind === 'euchred') {
-          text = `${seatsLabel(r.team)} euchred ${r.maker === 0 ? 'you' : makerName}! ${r.makerTricks} trick${r.makerTricks === 1 ? '' : 's'} was not enough. ${teamLabel(r.team)} +2.`;
-        } else if (r.kind === 'march') {
-          text = `${r.alone ? makerName + ' went alone and took' : seatsLabel(r.team) + ' took'} all 5 tricks. ${teamLabel(r.team)} +${r.pts}.`;
-        } else {
-          text = `${r.alone ? makerName + ' went alone and took' : seatsLabel(r.team) + ' took'} ${r.makerTricks} tricks. ${teamLabel(r.team)} +1.`;
-        }
+        const msg = el('p', 'msg');
+        let text = `${teamLabel(r.team)} +${r.pts}` + (r.kind === 'euchred' ? ' (euchre)' : r.alone && r.kind === 'march' ? ' (loner)' : '');
+        if (g.phase === 'gameOver') text += ` · ${g.winner === 0 ? 'You win' : 'They win'} ${g.scores[g.winner]}–${g.scores[1 - g.winner]}`;
+        msg.textContent = text;
+        p.appendChild(msg);
         if (g.phase === 'gameOver') {
-          msg.innerHTML = escapeHtml(text) + `<br><strong>${g.winner === 0 ? 'You and your partner win' : 'West and East win'} ${g.scores[g.winner]} to ${g.scores[1 - g.winner]}.</strong>`;
-          actions.appendChild(button('Play again', 'primary', () => startGame(g.options)));
-          actions.appendChild(button('Change options', '', openSetup));
+          add(button('Play again', 'primary', () => startGame(g.options)));
+          add(button('Change options', '', openSetup));
         } else {
-          msg.textContent = text;
-          actions.appendChild(button('Next hand', 'primary', () => { E.nextHand(g); advance(); }));
+          add(button('Next hand', 'primary', () => { E.nextHand(g); advance(); }));
         }
         break;
       }
     }
     if (actions.childNodes.length) p.appendChild(actions);
+    if (aloneSwitch) {
+      const t = el('label', 'switch');
+      t.innerHTML = '<input type="checkbox" role="switch" id="goAlone"><span class="track" aria-hidden="true"></span><span>Go alone</span>';
+      const input = t.querySelector('input');
+      input.checked = goAlone;
+      input.addEventListener('change', (e) => { goAlone = e.target.checked; });
+      p.appendChild(t);
+    }
   }
 
   function escapeHtml(s) {
