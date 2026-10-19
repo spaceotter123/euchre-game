@@ -6,7 +6,7 @@
   const { SUIT_SYM, SUIT_NAME, SEAT_NAMES } = E;
   const RED = { H: true, D: true };
   // "#fast" in the address speeds the computer players up (handy for testing).
-  const DELAY = location.hash === '#fast' ? { bid: 20, play: 20, trick: 40 } : { bid: 800, play: 650, trick: 1300 };
+  const DELAY = location.hash === '#fast' ? { bid: 20, play: 20, trick: 40, draw: 10 } : { bid: 800, play: 650, trick: 1300, draw: 260 };
   const SETTINGS_KEY = 'kte-settings';
 
   let g = null;
@@ -96,7 +96,11 @@
     const box = $('seat' + s);
     box.innerHTML = '';
     if (!g || !g.hands) {
-      box.appendChild(el('div', 'nameplate', SEAT_NAMES[s]));
+      const plate = el('div', 'nameplate', SEAT_NAMES[s]);
+      if (g && g.phase === 'drawDealer' && g.drawShown === g.draw.length && g.dealer === s) {
+        plate.insertAdjacentHTML('beforeend', '<span class="chip" title="Dealer">D</span>');
+      }
+      box.appendChild(plate);
       return;
     }
     const plate = el('div', 'nameplate' + (g.turn === s ? ' turn' : '') + (g.sittingOut === s ? ' out' : ''));
@@ -127,6 +131,10 @@
   function renderCenter() {
     const c = $('center');
     c.innerHTML = '';
+    if (g && g.phase === 'drawDealer') {
+      c.appendChild(drawEl());
+      return;
+    }
     if (!g || !g.hands) return;
     const trick = el('div', 'trick');
     const winner = g.phase === 'trickDone' ? g.trickWinner : -1;
@@ -149,6 +157,25 @@
     }
     trick.appendChild(mid);
     c.appendChild(trick);
+  }
+
+  // Face-up cards dealt one at a time until someone gets a black jack.
+  function drawEl() {
+    const trick = el('div', 'trick');
+    const shown = g.draw.slice(0, g.drawShown);
+    const done = g.drawShown === g.draw.length;
+    for (const s of [0, 1, 2, 3]) {
+      const slot = el('div', 'slot s' + s + (done && g.dealer === s ? ' won' : ''));
+      const mine = shown.filter((d) => d.seat === s);
+      if (mine.length) {
+        const ce = cardEl(mine[mine.length - 1].card, { tags: false });
+        if (shown[shown.length - 1].seat === s) ce.classList.add('fresh');
+        slot.appendChild(ce);
+      }
+      trick.appendChild(slot);
+    }
+    trick.appendChild(el('div', 'mid'));
+    return trick;
   }
 
   function bubbleEl(text) {
@@ -291,7 +318,10 @@
     if (!g) return;
     const lvl = g.options.difficulty;
     const seat = g.turn;
-    if ((g.phase === 'bid1' || g.phase === 'bid2') && seat !== 0) {
+    if (g.phase === 'drawDealer') {
+      if (g.drawShown < g.draw.length) schedule(() => { g.drawShown++; advance(); }, DELAY.draw);
+      else schedule(() => { E.startHand(g); advance(); }, DELAY.trick + 300);
+    } else if ((g.phase === 'bid1' || g.phase === 'bid2') && seat !== 0) {
       schedule(() => { E.bid(g, seat, AI.chooseBid(g, seat, lvl)); advance(); }, DELAY.bid);
     } else if (g.phase === 'discard' && seat !== 0) {
       schedule(() => { E.discard(g, seat, AI.chooseDiscard(g, seat, lvl)); advance(); }, DELAY.bid);
@@ -319,7 +349,6 @@
 
   function startGame(options) {
     g = E.newGame(options);
-    E.startHand(g);
     goAlone = false;
     advance();
   }

@@ -51,13 +51,30 @@
     return c.r + SUIT_SYM[c.s];
   }
 
-  function newGame(options) {
+  // The first dealer is found the traditional way: cards are dealt face up, one to each
+  // player in turn starting with West, and whoever gets the first black jack deals.
+  function drawForDealer(rng) {
+    const deck = shuffle(makeDeck(), rng || Math.random);
+    const draw = [];
+    let seat = 1;
+    for (const card of deck) {
+      draw.push({ seat, card });
+      if (card.r === 'J' && (card.s === 'S' || card.s === 'C')) break;
+      seat = nextSeat(seat);
+    }
+    return draw;
+  }
+
+  function newGame(options, rng) {
+    const draw = drawForDealer(rng);
     return {
       options: Object.assign({ difficulty: 'regular', stickDealer: false, canadianLoner: false }, options),
       scores: [0, 0],
-      dealer: Math.floor(Math.random() * 4),
+      dealer: draw[draw.length - 1].seat,
+      draw,
+      drawShown: 0,
       handNo: 0,
-      phase: 'idle',
+      phase: 'drawDealer',
       winner: -1,
     };
   }
@@ -273,7 +290,7 @@
   const Euchre = {
     SUITS, RANKS, RANK_VAL, SUIT_NAME, SUIT_SYM, SAME_COLOR, SEAT_NAMES, WINNING_SCORE,
     nextSeat, partnerOf, teamOf, makeDeck, isRight, isLeft, effSuit, power, cardName,
-    newGame, startHand, bidOptions, bid, discard, legalPlays, ledSuit, trickWinner, play,
+    newGame, drawForDealer, startHand, bidOptions, bid, discard, legalPlays, ledSuit, trickWinner, play,
     collectTrick, nextHand, nextActive, activeCount,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = Euchre;

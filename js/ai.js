@@ -1,9 +1,14 @@
-// Computer players. "regular" plays sensible but simple Euchre with some guesswork.
-// "hard" reads the bidding position, remembers every card played, notices when a
-// player can't follow suit, and only goes alone when the hand can carry it.
+// Computer players.
+// "regular": sensible but simple Euchre with some guesswork.
+// "classic": rule-of-thumb play that tracks cards and voids (the earlier Hard mode; kept for testing).
+// "hard": searches. It deals out many possible layouts of the cards it can't see (matching
+// everything shown so far), solves each layout exactly, and picks the bid, discard or card
+// that scores best on average. Your partner and both opponents use it.
 (function (root) {
   'use strict';
-  const E = typeof module !== 'undefined' && module.exports ? require('./engine.js') : root.Euchre;
+  const isNode = typeof module !== 'undefined' && module.exports;
+  const E = isNode ? require('./engine.js') : root.Euchre;
+  const S = isNode ? require('./solver.js') : root.EuchreSolver;
   const { SUITS, RANK_VAL, SAME_COLOR, effSuit, power, isRight, isLeft, partnerOf, teamOf, nextSeat } = E;
 
   const CALL_THRESHOLD = 6.4;
@@ -77,12 +82,12 @@
   }
 
   function noise(level, rng, size) {
-    return level === 'hard' ? 0 : (rng() * 2 - 1) * size;
+    return level !== 'regular' ? 0 : (rng() * 2 - 1) * size;
   }
 
-  function chooseBid(g, seat, level, rng) {
+  function heuristicBid(g, seat, level, rng) {
     rng = rng || Math.random;
-    const hard = level === 'hard';
+    const hard = level !== 'regular';
     const opts = E.bidOptions(g, seat);
     const hand = g.hands[seat];
 
@@ -125,14 +130,14 @@
 
   function wantsAlone(hand, t, level, rng) {
     const l = loneLosers(hand, t);
-    if (level === 'hard') return l <= 0.5;
+    if (level !== 'regular') return l <= 0.5;
     return l <= 0.2 && rng() < 0.8;
   }
 
-  function chooseDiscard(g, seat, level) {
+  function heuristicDiscard(g, seat, level) {
     const hand = g.hands[seat];
     const t = g.trump;
-    if (level === 'hard') return bestDiscard(hand, t).card.id;
+    if (level !== 'regular') return bestDiscard(hand, t).card.id;
     const off = hand.filter((c) => effSuit(c, t) !== t);
     const pool = off.length ? off : hand;
     return pool.reduce((a, b) => (power(b, t, null) < power(a, t, null) ? b : a)).id;
@@ -187,7 +192,7 @@
   // Pick the card we can best afford to lose.
   function throwAway(legal, g, seat, level, unseen) {
     const t = g.trump;
-    if (level !== 'hard') return lowest(legal, t);
+    if (level === 'regular') return lowest(legal, t);
     const hand = g.hands[seat];
     let best = null;
     for (const c of legal) {
@@ -203,11 +208,11 @@
     return best.c;
   }
 
-  function choosePlay(g, seat, level, rng) {
+  function heuristicPlay(g, seat, level, rng) {
     rng = rng || Math.random;
     const legal = E.legalPlays(g, seat);
     if (legal.length === 1) return legal[0];
-    if (level !== 'hard' && rng() < 0.06) return legal[Math.floor(rng() * legal.length)];
+    if (level === 'regular' && rng() < 0.06) return legal[Math.floor(rng() * legal.length)];
     return g.trick.length === 0 ? chooseLead(g, seat, level, legal, rng) : chooseFollow(g, seat, level, legal);
   }
 
@@ -217,7 +222,7 @@
     const offs = legal.filter((c) => effSuit(c, t) !== t);
     const ourCall = teamOf(g.maker) === teamOf(seat);
 
-    if (level !== 'hard') {
+    if (level === 'regular') {
       const aces = offs.filter((c) => c.r === 'A');
       if (aces.length) return aces[0];
       if (ourCall && trumps.length && rng() < 0.6) return highest(trumps, t, t);
@@ -267,7 +272,7 @@
     const winners = legal.filter((c) => power(c, t, led) > winPow);
     const lowestWinner = () => winners.reduce((a, b) => (power(b, t, led) < power(a, t, led) ? b : a));
 
-    if (level !== 'hard') {
+    if (level === 'regular') {
       if (partnerWinning || !winners.length) return lowest(legal, t);
       return lowestWinner();
     }
@@ -293,6 +298,185 @@
     const w = lowestWinner();
     if (partnerAfter && effSuit(w, t) === led && led !== t) return throwAway(legal, g, seat, level, unseen);
     return w;
+  }
+
+  // ---- Hard: search over possible hidden hands -------------------------
+
+  const SAMPLES = { bid: 40, discard: 24, play: 48 };
+  const TIME_LIMIT_MS = 400;
+  const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
+  // Points for the hand from `team`'s point of view, given the calling team's trick total.
+  function handPoints(makerTricks, alone, makerTeam, team) {
+    const pts = makerTricks >= 3 ? (makerTricks === 5 ? (alone ? 4 : 2) : 1) : -2;
+    return team === makerTeam ? pts : -pts;
+  }
+
+  // Cards this seat can't see, and where some of them are known to be.
+  function hiddenInfo(g, seat) {
+    const known = new Set(g.hands[seat].map((c) => c.id));
+    for (const c of g.played || []) known.add(c.id);
+    const fixed = [[], [], [], []];
+    if (g.turnedDown) known.add(g.upcard.id);
+    else if (g.phase !== 'bid1' && seat !== g.dealer && g.sittingOut !== g.dealer && !known.has(g.upcard.id)) {
+      // Everyone saw the dealer pick up the up card.
+      fixed[g.dealer].push(g.upcard);
+      known.add(g.upcard.id);
+    } else if (g.phase === 'bid1' || g.sittingOut === g.dealer) {
+      // Still face up on the kitty, or left there because the dealer sits out.
+      known.add(g.upcard.id);
+    }
+    if (seat === g.dealer && g.discarded) known.add(g.discarded.id);
+    const pool = E.makeDeck().filter((c) => !known.has(c.id));
+    return { pool, fixed };
+  }
+
+  function shuffled(arr, rng) {
+    const a = arr.slice();
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  // One random layout of the hidden cards that fits hand sizes and known voids.
+  function sampleHands(g, seat, info, rng, sizes, voids) {
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const hands = [[], [], [], []];
+      hands[seat] = g.hands[seat].slice();
+      let pool = shuffled(info.pool, rng);
+      const others = [0, 1, 2, 3].filter((s) => s !== seat && sizes[s] > 0);
+      // Fill the most restricted players first.
+      const eligible = (s, c) => !voids || !voids[s][E.effSuit(c, g.trump)];
+      others.sort((a, b) => pool.filter((c) => eligible(a, c)).length - pool.filter((c) => eligible(b, c)).length);
+      let ok = true;
+      for (const s of others) {
+        hands[s] = info.fixed[s].slice();
+        const need = sizes[s] - hands[s].length;
+        const pick = [];
+        const rest = [];
+        for (const c of pool) (pick.length < need && eligible(s, c) ? pick : rest).push(c);
+        if (pick.length < need) { ok = false; break; }
+        hands[s] = hands[s].concat(pick);
+        pool = rest;
+      }
+      if (ok) return hands;
+    }
+    return null;
+  }
+
+  // Average points (for seat's team) of calling `trump`, by solving sampled deals.
+  function callValue(g, seat, trump, alone, worlds) {
+    const makerTeam = teamOf(seat);
+    const sittingOut = alone ? partnerOf(seat) : -1;
+    let total = 0;
+    for (const w of worlds) {
+      const hands = w.map((h) => h.slice());
+      if (g.phase === 'bid1' && sittingOut !== g.dealer) {
+        const six = hands[g.dealer].concat([g.upcard]);
+        hands[g.dealer] = bestDiscard(six, trump).rest;
+      }
+      let leader = nextSeat(g.dealer);
+      if (leader === sittingOut) leader = nextSeat(leader);
+      const tricks = S.solve(hands, [], leader, trump, makerTeam, sittingOut);
+      total += handPoints(tricks, alone, makerTeam, makerTeam);
+    }
+    return total / worlds.length;
+  }
+
+  // Calling is worth it when it beats letting the bidding go on.
+  const CALL_MARGIN = { 1: 0.15, 2: 0.0 };
+
+  function searchBid(g, seat, rng) {
+    const opts = E.bidOptions(g, seat);
+    const info = hiddenInfo(g, seat);
+    const worlds = [];
+    const start = now();
+    for (let i = 0; i < SAMPLES.bid; i++) {
+      const w = sampleHands(g, seat, info, rng, [5, 5, 5, 5], null);
+      if (w) worlds.push(w);
+    }
+    const suits = opts.round === 1 ? [g.upcard.s] : opts.suits;
+    let best = null;
+    for (const t of suits) {
+      const choices = opts.forcedAlone ? [true] : [false, true];
+      for (const alone of choices) {
+        if (alone && !opts.forcedAlone && best && best.t === t && best.v < 1) continue; // weak hands never go alone
+        if (now() - start > TIME_LIMIT_MS * 2) break;
+        const v = callValue(g, seat, t, alone, worlds);
+        if (!best || v > best.v) best = { t, alone, v };
+      }
+    }
+    if (!best || (best.v < CALL_MARGIN[opts.round] && opts.canPass)) return { type: 'pass' };
+    return opts.round === 1 ? { type: 'order', alone: best.alone } : { type: 'call', suit: best.t, alone: best.alone };
+  }
+
+  function searchDiscard(g, seat, rng) {
+    const info = hiddenInfo(g, seat);
+    const sizes = [0, 1, 2, 3].map((s) => (s === g.sittingOut ? 0 : 5));
+    sizes[seat] = 6;
+    const worlds = [];
+    for (let i = 0; i < SAMPLES.discard; i++) {
+      const w = sampleHands(g, seat, info, rng, sizes, null);
+      if (w) worlds.push(w);
+    }
+    const makerTeam = teamOf(g.maker);
+    let best = null;
+    for (const c of g.hands[seat]) {
+      let total = 0;
+      for (const w of worlds) {
+        const hands = w.map((h) => h.slice());
+        hands[seat] = g.hands[seat].filter((x) => x !== c);
+        const tricks = S.solve(hands, [], E.nextActive(g, g.dealer), g.trump, makerTeam, g.sittingOut);
+        total += handPoints(tricks, g.alone, makerTeam, teamOf(seat));
+      }
+      // Ties go to the weakest card.
+      const v = total / worlds.length - power(c, g.trump, null) * 1e-4;
+      if (!best || v > best.v) best = { v, c };
+    }
+    return best.c.id;
+  }
+
+  function searchPlay(g, seat, rng) {
+    const legal = E.legalPlays(g, seat);
+    if (legal.length === 1) return legal[0];
+    const info = hiddenInfo(g, seat);
+    const sizes = [0, 1, 2, 3].map((s) => (s === g.sittingOut ? 0 : g.hands[s].length));
+    const makerTeam = teamOf(g.maker);
+    const done = g.tricksWon[makerTeam];
+    const totals = legal.map(() => 0);
+    const start = now();
+    let n = 0;
+    for (let i = 0; i < SAMPLES.play; i++) {
+      if (n >= 8 && now() - start > TIME_LIMIT_MS) break;
+      const w = sampleHands(g, seat, info, rng, sizes, g.voids);
+      if (!w) continue;
+      const vals = S.moveValues(w, g.trick, seat, g.trump, makerTeam, g.sittingOut, legal);
+      vals.forEach((v, k) => { totals[k] += handPoints(done + v, g.alone, makerTeam, teamOf(seat)); });
+      n++;
+    }
+    if (!n) return heuristicPlay(g, seat, 'classic', rng);
+    // Ties go to the cheapest card, keeping strong cards for later.
+    let bestK = 0;
+    for (let k = 1; k < legal.length; k++) {
+      const diff = totals[k] - totals[bestK];
+      if (diff > 1e-9 || (Math.abs(diff) <= 1e-9 && power(legal[k], g.trump, null) < power(legal[bestK], g.trump, null))) bestK = k;
+    }
+    return legal[bestK];
+  }
+
+  function chooseBid(g, seat, level, rng) {
+    rng = rng || Math.random;
+    return level === 'hard' ? searchBid(g, seat, rng) : heuristicBid(g, seat, level, rng);
+  }
+  function chooseDiscard(g, seat, level, rng) {
+    rng = rng || Math.random;
+    return level === 'hard' ? searchDiscard(g, seat, rng) : heuristicDiscard(g, seat, level);
+  }
+  function choosePlay(g, seat, level, rng) {
+    rng = rng || Math.random;
+    return level === 'hard' ? searchPlay(g, seat, rng) : heuristicPlay(g, seat, level, rng);
   }
 
   const EuchreAI = { chooseBid, chooseDiscard, choosePlay, handStrength, loneLosers };

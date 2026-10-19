@@ -1,5 +1,4 @@
 // Plays computer-vs-computer games to check the rules engine and compare difficulty levels.
-// Usage: node test/sim.js [games]
 'use strict';
 const E = require('../js/engine.js');
 const AI = require('../js/ai.js');
@@ -33,21 +32,30 @@ function playGame(levels, options) {
         throw new Error('Unexpected phase ' + g.phase);
     }
   }
-  return g.winner;
+  return g;
 }
 
+// Usage: node test/sim.js [games] [levelA] [levelB]
 const games = Number(process.argv[2]) || 2000;
+const A = process.argv[3] || 'hard';
+const B = process.argv[4] || 'regular';
 const variants = [
   { name: 'standard', options: {} },
   { name: 'stick the dealer + canadian loner', options: { stickDealer: true, canadianLoner: true } },
 ];
 for (const v of variants) {
-  let hardWins = 0;
+  let aWins = 0;
+  let aPts = 0;
+  let bPts = 0;
+  const t0 = Date.now();
   for (let i = 0; i < games; i++) {
-    // Alternate which team is hard so seat order can't skew the result.
-    const hardTeam = i % 2;
-    const levels = hardTeam === 0 ? ['hard', 'regular'] : ['regular', 'hard'];
-    if (playGame(levels, v.options) === hardTeam) hardWins++;
+    // Alternate seats so seat order can't skew the result.
+    const aTeam = i % 2;
+    const levels = aTeam === 0 ? [A, B] : [B, A];
+    const g = playGame(levels, v.options);
+    if (g.winner === aTeam) aWins++;
+    aPts += g.scores[aTeam];
+    bPts += g.scores[1 - aTeam];
   }
-  console.log(`${v.name}: hard beat regular in ${hardWins}/${games} games (${(100 * hardWins / games).toFixed(1)}%)`);
+  console.log(`${v.name}: ${A} beat ${B} in ${aWins}/${games} games (${(100 * aWins / games).toFixed(1)}%), points ${aPts}-${bPts}, ${((Date.now() - t0) / games).toFixed(0)} ms/game`);
 }
