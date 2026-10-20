@@ -68,11 +68,21 @@
   // ---- Motion ----
   // The table is redrawn after every move, so animations work by remembering where
   // things were just before the redraw and sliding them from there ("FLIP").
-  const motionOK = () => !FAST && typeof Element.prototype.animate === 'function'
-    && !(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+  // Card movement is how the game shows what happened, so it plays even when the
+  // device asks for less motion.
+  const motionOK = () => !FAST && typeof Element.prototype.animate === 'function';
   const EASE = 'cubic-bezier(.2,.7,.2,1)';
+  const now = () => performance.now();
   let flyFrom = null; // { seat, rect }: where the card just played came from
   let pickupFrom = null; // rect of the up card just before the dealer took it
+  let kittyFrom = null; // rect of the kitty in the middle just before trump was named
+  let discardFrom = null; // { rect, html, red }: card the dealer just threw away
+  let holdUntil = 0; // nothing else moves until the deal animation ends
+  const DEAL_PACKET_MS = 300;
+  const DEAL_FLIGHT_MS = 420;
+  const DEAL_MS = DEAL_PACKET_MS * 8 + DEAL_FLIGHT_MS + 500;
+  // The deck and the kitty sit in the corner of the table nearest the dealer.
+  const PILE_AREA = ['3 / 1', '1 / 1', '1 / 3', '3 / 3'];
   let dealtHand = 0; // last hand whose deal was animated
   let lastScores = [0, 0];
   const seen = new Set(); // markers already on screen, so only new ones pop in
@@ -99,9 +109,9 @@
   }
 
   // A temporary card that travels from one spot to another and fades away.
-  function ghost(from, to, html, duration, red) {
+  function ghost(from, to, html, duration, red, extra) {
     if (!from || !to || !motionOK()) return;
-    const n = el('div', 'ghost' + (red ? ' red' : ''), html);
+    const n = el('div', 'ghost' + (red ? ' red' : '') + (extra ? ' ' + extra : ''), html);
     Object.assign(n.style, { left: from.left + 'px', top: from.top + 'px', width: from.width + 'px', height: from.height + 'px' });
     document.body.appendChild(n);
     const dx = to.left + to.width / 2 - (from.left + from.width / 2);
@@ -139,23 +149,37 @@
   }
 
   function animateAfterRender(before) {
-    if (!g || !motionOK()) { flyFrom = pickupFrom = null; return; }
+    if (!g || !motionOK()) { flyFrom = pickupFrom = kittyFrom = discardFrom = null; return; }
 
-    // Deal: cards come off the dealer's spot one at a time.
-    if (g.hands && g.phase === 'bid1' && g.handNo !== dealtHand) {
+    // Deal: packets of 3 and 2 go round the table twice, off the deck by the dealer.
+    if (dealing()) {
       dealtHand = g.handNo;
-      const origin = rectOf(document.querySelector('#seat' + g.dealer + ' .nameplate')) || rectOf($('center'));
+      const deck = rectOf(document.querySelector('#center .pile.deck'));
       const order = [1, 2, 3, 0].map((k) => (g.dealer + k) % 4);
-      let i = 0;
-      for (const s of order) {
-        const nodes = s === 0 ? $('hand0').querySelectorAll('.card') : document.querySelectorAll('#seat' + s + ' .back');
-        nodes.forEach((n) => slideFrom(n, origin, { duration: 420, delay: 60 * i++, fade: true }));
+      const nodesFor = (s) => Array.from(s === 0 ? $('hand0').querySelectorAll('.card') : document.querySelectorAll('#seat' + s + ' .back'));
+      const queues = order.map(nodesFor);
+      let packet = 0;
+      for (const round of [0, 1]) {
+        order.forEach((s, k) => {
+          const size = (k + round) % 2 === 0 ? 3 : 2;
+          const nodes = queues[k].splice(0, size);
+          nodes.forEach((n, j) => slideFrom(n, deck, { duration: DEAL_FLIGHT_MS, delay: packet * DEAL_PACKET_MS + j * 70 }));
+          packet++;
+        });
       }
-      const up = document.querySelector('#center .kitty .card');
-      if (up) up.animate([{ transform: 'rotateY(90deg) scale(.8)', opacity: 0 }, { transform: 'none', opacity: 1 }],
-        { duration: 420, delay: 60 * i + 120, easing: EASE, fill: 'backwards' });
+      const up = document.querySelector('#center .kitty');
+      const end = packet * DEAL_PACKET_MS + DEAL_FLIGHT_MS;
+      if (up) slideFrom(up, deck, { duration: 380, delay: end - 200 });
+      const upCard = document.querySelector('#center .kitty .card');
+      if (upCard) upCard.animate([{ transform: 'rotateY(90deg)' }, { transform: 'none' }], { duration: 320, delay: end + 180, easing: EASE, fill: 'backwards' });
+      const deckEl = document.querySelector('#center .pile.deck');
+      if (deckEl) deckEl.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, delay: end - 200, fill: 'forwards' });
       before = new Map();
     }
+
+    // Once trump is named the leftover cards go off to the side, by the dealer.
+    if (kittyFrom) slideFrom(document.querySelector('#center .pile.kitty-side'), kittyFrom, { duration: 520 });
+    if (discardFrom) ghost(discardFrom.rect, rectOf(document.querySelector('#center .pile.kitty-side')), discardFrom.html, 520, discardFrom.red, discardFrom.back ? 'back' : '');
 
     // A card just played flies from the player to the middle.
     if (flyFrom) {
@@ -184,7 +208,7 @@
       if (fresh && mid) slideFrom(fresh, { left: mid.left, top: mid.top, width: fresh.offsetWidth, height: fresh.offsetHeight }, { duration: 340, fade: true });
     }
 
-    flyFrom = pickupFrom = null;
+    flyFrom = pickupFrom = kittyFrom = discardFrom = null;
   }
 
   // Markers (passes, calls, the dealer chip) pop in once when they first appear.
@@ -212,9 +236,16 @@
     lastScores = g.scores.slice();
   }
 
+  // True while a fresh hand is waiting to be (or being) dealt out on screen.
+  const dealing = () => g && g.hands && g.phase === 'bid1' && g.handNo !== dealtHand && motionOK();
+
   // ---- Rendering ----
   function render() {
     const before = handRects();
+    if (dealing()) {
+      holdUntil = now() + DEAL_MS;
+      setTimeout(renderPanel, DEAL_MS + 20);
+    }
     $('scoreUs').textContent = g ? g.scores[0] : 0;
     $('scoreThem').textContent = g ? g.scores[1] : 0;
     renderStrip();
@@ -308,7 +339,21 @@
       mid.appendChild(kittyEl(false));
     }
     trick.appendChild(mid);
+    if (dealing()) trick.appendChild(pileEl('deck', 8));
+    else if (g.trump) trick.appendChild(pileEl('kitty-side', 4));
     c.appendChild(trick);
+  }
+
+  // A face-down stack: the deck before the deal, or the kitty once trump is named.
+  function pileEl(kind, count) {
+    const p = el('div', 'pile ' + kind);
+    p.style.gridArea = PILE_AREA[g.dealer];
+    for (let i = 0; i < count; i++) {
+      const b = backEl();
+      b.style.transform = `translate(${i * 1.5}px, ${-i * 1.5}px)`;
+      p.appendChild(b);
+    }
+    return p;
   }
 
   // Face-up cards dealt one at a time until someone gets a black jack.
@@ -326,7 +371,15 @@
       }
       trick.appendChild(slot);
     }
-    trick.appendChild(el('div', 'mid'));
+    const mid = el('div', 'mid');
+    const deck = el('div', 'pile deck');
+    for (let i = 0; i < 6; i++) {
+      const b = backEl();
+      b.style.transform = `translate(${i * 1.5}px, ${-i * 1.5}px)`;
+      deck.appendChild(b);
+    }
+    mid.appendChild(deck);
+    trick.appendChild(mid);
     return trick;
   }
 
@@ -388,6 +441,7 @@
   function renderPanel() {
     const p = $('panel');
     p.innerHTML = '';
+    if (now() < holdUntil) return;
     const actions = el('div', 'actions');
     const add = (b) => actions.appendChild(b);
 
@@ -461,7 +515,7 @@
   // ---- Turn loop ----
   function schedule(fn, ms) {
     clearTimeout(timer);
-    timer = setTimeout(fn, ms);
+    timer = setTimeout(fn, ms + Math.max(0, holdUntil - now()));
   }
 
   function advance() {
@@ -481,7 +535,12 @@
         advance();
       }, DELAY.bid);
     } else if (g.phase === 'discard' && seat !== 0) {
-      schedule(() => { E.discard(g, seat, AI.chooseDiscard(g, seat, lvl)); advance(); }, DELAY.bid);
+      schedule(() => {
+        const id = AI.chooseDiscard(g, seat, lvl);
+        discardFrom = { rect: seatRect(seat), html: '', back: true };
+        E.discard(g, seat, id);
+        advance();
+      }, DELAY.bid);
     } else if (g.phase === 'play' && seat !== 0) {
       schedule(() => {
         const card = AI.choosePlay(g, seat, lvl);
@@ -507,7 +566,7 @@
     const node = $('hand0').querySelector(`[data-id="${id}"]`);
     const rect = rectOf(node);
     if (g.phase === 'discard') {
-      ghost(rect, rectOf($('center')), node.innerHTML, 480, node.classList.contains('red'));
+      discardFrom = { rect, html: '', back: true };
       E.discard(g, 0, id);
     } else if (g.phase === 'play') {
       flyFrom = { seat: 0, rect };
@@ -519,12 +578,14 @@
   // Remember where the up card sat if this bid sends it to the dealer.
   function notePickup(action) {
     if (g.phase === 'bid1' && action.type === 'order') pickupFrom = rectOf(document.querySelector('#center .kitty .card'));
+    if (action.type !== 'pass') kittyFrom = rectOf(document.querySelector('#center .kitty .stack'));
   }
 
   function startGame(options) {
     g = E.newGame(options);
     goAlone = false;
     dealtHand = 0;
+    holdUntil = 0;
     lastScores = [0, 0];
     advance();
   }
