@@ -81,8 +81,8 @@
   const DEAL_PACKET_MS = 300;
   const DEAL_FLIGHT_MS = 420;
   const DEAL_MS = DEAL_PACKET_MS * 8 + DEAL_FLIGHT_MS + 500;
-  // The deck and the kitty sit in the corner of the table nearest the dealer.
-  const PILE_AREA = ['3 / 1', '1 / 1', '1 / 3', '3 / 3'];
+  // The deck and the kitty sit in the corner of the table to the dealer's left.
+  const PILE_CORNER = ['bottom-left', 'top-left', 'top-right', 'bottom-right'];
   let dealtHand = 0; // last hand whose deal was animated
   let lastScores = [0, 0];
   const seen = new Set(); // markers already on screen, so only new ones pop in
@@ -154,7 +154,7 @@
     // Deal: packets of 3 and 2 go round the table twice, off the deck by the dealer.
     if (dealing()) {
       dealtHand = g.handNo;
-      const deck = rectOf(document.querySelector('#center .pile.deck'));
+      const deck = rectOf(document.querySelector('#table > .pile.deck'));
       const order = [1, 2, 3, 0].map((k) => (g.dealer + k) % 4);
       const nodesFor = (s) => Array.from(s === 0 ? $('hand0').querySelectorAll('.card') : document.querySelectorAll('#seat' + s + ' .back'));
       const queues = order.map(nodesFor);
@@ -172,14 +172,14 @@
       if (up) slideFrom(up, deck, { duration: 380, delay: end - 200 });
       const upCard = document.querySelector('#center .kitty .card');
       if (upCard) upCard.animate([{ transform: 'rotateY(90deg)' }, { transform: 'none' }], { duration: 320, delay: end + 180, easing: EASE, fill: 'backwards' });
-      const deckEl = document.querySelector('#center .pile.deck');
+      const deckEl = document.querySelector('#table > .pile.deck');
       if (deckEl) deckEl.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 200, delay: end - 200, fill: 'forwards' });
       before = new Map();
     }
 
     // Once trump is named the leftover cards go off to the side, by the dealer.
-    if (kittyFrom) slideFrom(document.querySelector('#center .pile.kitty-side'), kittyFrom, { duration: 520 });
-    if (discardFrom) ghost(discardFrom.rect, rectOf(document.querySelector('#center .pile.kitty-side')), discardFrom.html, 520, discardFrom.red, discardFrom.back ? 'back' : '');
+    if (kittyFrom) slideFrom(document.querySelector('#table > .pile.kitty-side'), kittyFrom, { duration: 520 });
+    if (discardFrom) ghost(discardFrom.rect, rectOf(document.querySelector('#table > .pile.kitty-side')), discardFrom.html, 520, discardFrom.red, discardFrom.back ? 'back' : '');
 
     // A card just played flies from the player to the middle.
     if (flyFrom) {
@@ -266,13 +266,19 @@
     if (g.trump) {
       parts.push(`Trump <b><span class="trump-sym ${RED[g.trump] ? 'red' : ''}">${SUIT_SYM[g.trump]}</span> ${SUIT_NAME[g.trump]}</b>`);
       parts.push(`Called by <b>${SEAT_NAMES[g.maker]}${g.alone ? ' (alone)' : ''}</b>`);
-      parts.push(`Tricks <b>Us ${g.tricksWon[0]}</b> · <b>Them ${g.tricksWon[1]}</b>`);
+      const won = [0, 1].map((t) => countedTricks().filter((x) => E.teamOf(x.winner) === t).length);
+      parts.push(`Tricks <b>Us ${won[0]}</b> · <b>Them ${won[1]}</b>`);
     }
     const rules = [o.difficulty === 'hard' ? 'Hard' : 'Regular'];
     if (o.stickDealer) rules.push('Stick the Dealer');
     if (o.canadianLoner) rules.push('Canadian Loner');
     parts.push(rules.join(' · '));
     strip.innerHTML = parts.map((p) => `<span>${p}</span>`).join('');
+  }
+
+  // A trick counts on screen only once it has been cleared off the table.
+  function countedTricks() {
+    return g.phase === 'trickDone' ? g.tricks.slice(0, -1) : g.tricks;
   }
 
   function renderSeat(s) {
@@ -293,7 +299,7 @@
       plate.insertAdjacentHTML('beforeend', `<span class="chip maker">${g.alone ? 'Alone' : 'Called'} ${suitHtml(g.trump)}</span>`);
     }
     if (g.trump && g.sittingOut !== s && ['play', 'trickDone', 'handOver', 'gameOver'].includes(g.phase)) {
-      const n = g.tricks.filter((t) => t.winner === s).length;
+      const n = countedTricks().filter((t) => t.winner === s).length;
       plate.insertAdjacentHTML('beforeend', `<span class="chip tricks" title="Tricks won this hand">${n}</span>`);
     }
     const bidding = g.phase === 'bid1' || g.phase === 'bid2' || g.phase === 'discard' || g.phase === 'misdeal';
@@ -314,6 +320,7 @@
   function renderCenter() {
     const c = $('center');
     c.innerHTML = '';
+    document.querySelectorAll('#table > .pile').forEach((n) => n.remove());
     if (g && g.phase === 'drawDealer') {
       c.appendChild(drawEl());
       return;
@@ -339,15 +346,16 @@
       mid.appendChild(kittyEl(false));
     }
     trick.appendChild(mid);
-    if (dealing()) trick.appendChild(pileEl('deck', 8));
-    else if (g.trump) trick.appendChild(pileEl('kitty-side', 4));
+    const table = $('table');
+    if (dealing()) table.appendChild(pileEl('deck', 8));
+    else if (g.trump) table.appendChild(pileEl('kitty-side', 4));
     c.appendChild(trick);
   }
 
   // A face-down stack: the deck before the deal, or the kitty once trump is named.
   function pileEl(kind, count) {
     const p = el('div', 'pile ' + kind);
-    p.style.gridArea = PILE_AREA[g.dealer];
+    p.classList.add(PILE_CORNER[g.dealer]);
     for (let i = 0; i < count; i++) {
       const b = backEl();
       b.style.transform = `translate(${i * 1.5}px, ${-i * 1.5}px)`;
