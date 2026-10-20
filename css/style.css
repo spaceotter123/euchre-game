@@ -159,6 +159,13 @@ body {
   font-family: var(--font-display);
 }
 .ghost.red { color: var(--red); }
+.ghost.back {
+  background: repeating-linear-gradient(45deg, var(--back-a) 0 5px, var(--back-b) 5px 10px);
+  border: 2px solid var(--ivory);
+}
+.pile { position: relative; width: calc(var(--cw) * 0.72); height: calc(var(--ch) * 0.72); align-self: center; justify-self: center; z-index: 1; }
+.pile .back { position: absolute; inset: 0; width: 100%; height: 100%; }
+.trick .mid .pile.deck { width: calc(var(--cw) * 0.8); height: calc(var(--ch) * 0.8); }
 .ghost .corner { position: absolute; top: 3px; left: 5px; display: grid; justify-items: center; line-height: 1; font-weight: 700; font-size: calc(var(--cw) * 0.26); }
 .ghost .pip { position: absolute; inset: 0; display: grid; place-items: center; font-size: calc(var(--cw) * 0.52); padding-top: calc(var(--ch) * 0.12); }
 .nameplate.out { opacity: 0.5; }
@@ -227,7 +234,7 @@ body {
   align-items: center;
   justify-items: center;
 }
-.trick .slot { width: var(--cw); height: var(--ch); display: grid; place-items: center; }
+.trick .slot { width: var(--cw); height: var(--ch); display: grid; place-items: center; position: relative; z-index: 2; }
 .trick .s2 { grid-area: 1 / 2; }
 .trick .s1 { grid-area: 2 / 1; }
 .trick .s3 { grid-area: 2 / 3; }
@@ -401,6 +408,5 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .pop { animation: none; }
   .mine .card, .switch .track, .switch .track::after { transition: none; }
 }

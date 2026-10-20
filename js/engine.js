@@ -52,11 +52,12 @@
   }
 
   // The first dealer is found the traditional way: cards are dealt face up, one to each
-  // player in turn starting with West, and whoever gets the first black jack deals.
+  // player in turn starting with a random player, and whoever gets the first black jack deals.
   function drawForDealer(rng) {
-    const deck = shuffle(makeDeck(), rng || Math.random);
+    rng = rng || Math.random;
+    const deck = shuffle(makeDeck(), rng);
     const draw = [];
-    let seat = 1;
+    let seat = Math.floor(rng() * 4);
     for (const card of deck) {
       draw.push({ seat, card });
       if (card.r === 'J' && (card.s === 'S' || card.s === 'C')) break;
